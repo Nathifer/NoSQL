@@ -1,0 +1,271 @@
+Nathalia Fernandez Rodrigues
+PEC_1
+
+--------------------------------------------------------------------------------------------------
+--- Create databa---
+SET hive.cli.print.header=true;
+
+CREATE DATABASE LEGO;
+SHOW DATABASES;
+USE LEGO;
+
+
+/*Ejercicio_1 */
+1) ¿Cómo se cargan en Hive? ¿Con qué estructura?
+
+--- Creación de estructura -----
+CREATE TABLE sets(set_num string,name string,year int,theme_id int,num_parts int) 
+ROW FORMAT DELIMITED FIELDS TERMINATED BY ',' 
+STORED AS TEXTFILE  TBLPROPERTIES ("skip.header.line.count"="1");
+
+CREATE TABLE themes( id int,name string,parent_id int) 
+ROW FORMAT DELIMITED FIELDS TERMINATED BY ',' 
+STORED AS TEXTFILE  TBLPROPERTIES ("skip.header.line.count"="1");
+
+--- Carga de Datos en HIVE -----
+LOAD DATA INPATH '/hadoop/datasets/sets-edit.csv' INTO TABLE sets;
+LOAD DATA INPATH '/hadoop/datasets/themes.csv' INTO TABLE themes;
+
+
+
+/*Ejercicio_2*/
+2) ¿Cuántos temas principales hay? ¿Cuántos subtemas tiene cada tema principal y cuáles son?
+
+---2.1  ¿Cuántos temas principales hay? ---
+SELECT COUNT(*) AS cantidad_temas_principales 
+FROM themes 
+WHERE parent_id is NULL;
+
+---2.2 ¿Cuántos subtemas tiene cada tema principal y cuáles son? ---
+
+CREATE TEMPORARY TABLE temp_themes_cat_count AS SELECT  parent_id, COUNT(*) AS cantidad_subtemas  
+FROM themes
+GROUP BY parent_id;
+
+SELECT temp_themes_cat_count.cantidad_subtemas, temp_themes_cat_count.parent_id, themes.name
+FROM lego.temp_themes_cat_count 
+INNER JOIN lego.themes
+ON themes.id = temp_themes_cat_count.parent_id
+ORDER BY temp_themes_cat_count.parent_id;
+
+
+
+
+/*Ejercicio_3 */
+3) Queremos saber cuáles son los packs de Lego más nuevos y a qué temas pertenecen (1,5 puntos)
+
+SELECT sets.year, themes.name as theme_name, sets.name
+FROM lego.sets
+INNER JOIN lego.themes
+ON themes.id = sets.theme_id
+ORDER BY sets.year DESC;
+
+
+
+/*Ejercicio_4 */
+4) Queremos saber todos los packs que hay que tengan algo que ver con los temas de Star Wars (2 puntos)
+
+a. Aquellos que contienen Star Wars en su nombre
+b. Aquellos que tienen como padre algún tema que contenga Star Wars
+
+---- Sets que contienen Star Wars en su nombre y que tambien estan en themes----
+SELECT sets.name
+FROM lego.sets
+INNER JOIN lego.themes
+ON themes.id = sets.theme_id
+WHERE LOWER(sets.name) LIKE '%star wars%';
+
+--- Theme que tienen star wars en su nombre y son padres ---
+SELECT sets.name, themes.name
+FROM lego.sets
+INNER JOIN lego.themes
+ON themes.id = sets.theme_id
+WHERE LOWER(themes.name) LIKE '%star wars%' and themes.parent_id is null;
+
+
+
+/*Ejercicio_5 */
+5) De las siguientes franquicias peliculeras, ¿cuál tiene más packs? Considerar el tema principal y los subtemas si los hubiera (2 puntos)
+a. Jurassic Park
+b. GhostBusters
+c. Harry Potter
+d. Indiana Jones
+e. Super Heroes
+
+CREATE VIEW sets_franquicia_peliculera AS
+SELECT set_num,theme_id, num_parts, s.name,
+CASE
+WHEN LOWER(s.name) LIKE '%jurassic%' or LOWER(t.name) LIKE '%jurassic%' THEN 'jurassic park'
+WHEN LOWER(s.name) LIKE '%ghostbusters%' or LOWER(t.name) LIKE '%ghostbusters%' THEN 'ghostbusters'
+WHEN LOWER(s.name) LIKE '%harry potter%' or LOWER(t.name) LIKE '%harry potter%' THEN 'harry potter'
+WHEN LOWER(s.name) LIKE '%indiana jones%' or LOWER(t.name) LIKE '%indiana jones%' THEN 'indiana jones'
+WHEN LOWER(s.name) LIKE '%super heroes%' or LOWER(t.name) LIKE '%super heroes%' THEN 'super heroes'
+ELSE 'Other'
+END as franquicia_peliculera
+FROM lego.sets s
+JOIN lego.themes t
+ON t.id = s.theme_id
+ORDER BY franquicia_peliculera;
+
+SELECT franquicia_peliculera, COUNT(*) as num_packs
+FROM sets_franquicia_peliculera
+WHERE franquicia_peliculera != 'Other'
+GROUP BY franquicia_peliculera
+ORDER BY num_packs DESC
+LIMIT 1 ;
+
+
+
+
+
+/*Ejercicio_6 */
+6)  Queremos comparar en el tema de Super Heroes los de Marvel y DC. 
+6.1 ¿Puedes agruparlos de alguna manera? 
+6.2 ¿Cuál tiene más series? 
+6.3 ¿Y cuál más packs de Lego? 
+
+--- 6.1  Se agrupan por los que tengan como nombre de tema "Marvel o DC", y  que el tema principal sea Super Herores.
+CREATE VIEW series_franquicia_peliculera AS
+SELECT set_num,theme_id,parent_id,s.name,
+CASE
+WHEN LOWER(t.name) LIKE '%marvel%' THEN 'marvel'
+WHEN LOWER(t.name) LIKE '%dc%' THEN 'dc'
+ELSE 'Other'
+END as s_franquicia_peliculera
+FROM lego.sets s
+JOIN lego.themes t
+ON t.id = s.theme_id
+Where parent_id = 482
+ORDER BY s_franquicia_peliculera;
+
+--- 6.2 Por series podemos entender subtemas dentro del tema principal de la franquicia.
+SELECT s_franquicia_peliculera, COUNT(*) as num_series    
+FROM series_franquicia_peliculera
+WHERE s_franquicia_peliculera != 'Other' 
+GROUP BY s_franquicia_peliculera
+ORDER BY num_series DESC;
+
+---6.3 Se agrupan por los que sean de Lego en la tabla sets 
+CREATE VIEW packs_franquicia_peliculera AS
+SELECT theme_id,parent_id, s.name,
+CASE
+WHEN LOWER(s.name) LIKE '%marvel%' THEN 'marvel'
+WHEN LOWER(s.name) LIKE '%dc%' THEN 'dc'
+ELSE 'Other'
+END as p_franquicia_peliculera
+FROM lego.sets s
+JOIN lego.themes t
+ON t.id = s.theme_id
+Where LOWER(s.name) LIKE '%lego%'
+ORDER BY p_franquicia_peliculera;
+
+SELECT p_franquicia_peliculera, COUNT(*) as num_packs    
+FROM packs_franquicia_peliculera
+WHERE p_franquicia_peliculera != 'Other' 
+GROUP BY p_franquicia_peliculera
+ORDER BY num_packs DESC;
+
+
+
+
+-------------------------------------------SALIDAS------------------------------------------------
+
+INSERT OVERWRITE DIRECTORY '/hadoop/output'
+ROW FORMAT DELIMITED FIELDS TERMINATED BY ','
+SELECT COUNT(*) AS cantidad_temas_principales 
+FROM themes 
+WHERE parent_id is NULL;
+
+hdfs dfs -copyToLocal /hadoop/output /home/bigdata/Desktop/PRUEBA/Ejercicio_2_1
+
+
+
+INSERT OVERWRITE DIRECTORY '/hadoop/output'
+ROW FORMAT DELIMITED FIELDS TERMINATED BY ','
+SELECT temp_themes_cat_count.cantidad_subtemas, temp_themes_cat_count.parent_id, themes.name
+FROM lego.temp_themes_cat_count 
+INNER JOIN lego.themes
+ON themes.id = temp_themes_cat_count.parent_id
+ORDER BY temp_themes_cat_count.parent_id, temp_themes_cat_count.cantidad_subtemas DESC ;
+
+hdfs dfs -copyToLocal /hadoop/output /home/bigdata/Desktop/PRUEBA/Ejercicio_2_2
+
+
+INSERT OVERWRITE DIRECTORY '/hadoop/output'
+ROW FORMAT DELIMITED FIELDS TERMINATED BY ','
+SELECT sets.year, themes.name as theme_name, sets.name
+FROM lego.sets
+INNER JOIN lego.themes
+ON themes.id = sets.theme_id
+ORDER BY sets.year DESC;
+
+hdfs dfs -copyToLocal /hadoop/output /home/bigdata/Desktop/PRUEBA/Ejercicio_3
+
+
+
+INSERT OVERWRITE DIRECTORY '/hadoop/output'
+ROW FORMAT DELIMITED FIELDS TERMINATED BY ','
+SELECT sets.name
+FROM lego.sets
+INNER JOIN lego.themes
+ON themes.id = sets.theme_id
+WHERE LOWER(sets.name) LIKE '%star wars%';
+
+hdfs dfs -copyToLocal /hadoop/output /home/bigdata/Desktop/PRUEBA/Ejercicio_4_1
+
+
+INSERT OVERWRITE DIRECTORY '/hadoop/output'
+ROW FORMAT DELIMITED FIELDS TERMINATED BY ','
+SELECT sets.name, themes.name
+FROM lego.sets
+INNER JOIN lego.themes
+ON themes.id = sets.theme_id
+WHERE LOWER(themes.name) LIKE '%star wars%' and themes.parent_id is null;
+
+hdfs dfs -copyToLocal /hadoop/output /home/bigdata/Desktop/PRUEBA/Ejercicio_4_2
+
+INSERT OVERWRITE DIRECTORY '/hadoop/output'
+ROW FORMAT DELIMITED FIELDS TERMINATED BY ','
+SELECT franquicia_peliculera, COUNT(*) as num_packs
+FROM sets_franquicia_peliculera
+WHERE franquicia_peliculera != 'Other'
+GROUP BY franquicia_peliculera
+ORDER BY num_packs DESC
+LIMIT 1 ;
+
+hdfs dfs -copyToLocal /hadoop/output /home/bigdata/Desktop/PRUEBA/Ejercicio_5
+
+
+INSERT OVERWRITE DIRECTORY '/hadoop/output'
+ROW FORMAT DELIMITED FIELDS TERMINATED BY ','
+SELECT s_franquicia_peliculera, COUNT(*) as num_series    
+FROM series_franquicia_peliculera
+WHERE s_franquicia_peliculera != 'Other' 
+GROUP BY s_franquicia_peliculera
+ORDER BY num_series DESC;
+
+hdfs dfs -copyToLocal /hadoop/output /home/bigdata/Desktop/PRUEBA/Ejercicio_6_1
+
+INSERT OVERWRITE DIRECTORY '/hadoop/output'
+ROW FORMAT DELIMITED FIELDS TERMINATED BY ','
+SELECT p_franquicia_peliculera, COUNT(*) as num_packs    
+FROM packs_franquicia_peliculera
+WHERE p_franquicia_peliculera != 'Other' 
+GROUP BY p_franquicia_peliculera
+ORDER BY num_packs DESC;
+
+hdfs dfs -copyToLocal /hadoop/output /home/bigdata/Desktop/PRUEBA/Ejercicio_6_2
+
+
+
+
+
+
+
+
+
+
+
+
+
+
